@@ -1046,15 +1046,20 @@
     let isProcessing = false;
     let isLoadingDiscoveryGroup = false;
 
-    // Library IDs excluded from the home screen (user.Configuration.MyMediaExcludes)
+    // Library IDs excluded from the home screen (user.Configuration.LatestItemsExcludes)
     let excludedLibraryIds = new Set();
+    // Item IDs belonging to excluded libraries (pre-fetched at init; TopParentId is not in list responses)
+    let excludedItemIds = new Set();
 
     function isItemExcluded(item) {
-        if (excludedLibraryIds.size === 0) return false;
-        return excludedLibraryIds.has(item.TopParentId);
+        if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return false;
+        if (excludedItemIds.has(item.Id)) return true;
+        // Fallback for any response that does include TopParentId
+        if (item.TopParentId && excludedLibraryIds.has(item.TopParentId)) return true;
+        return false;
     }
     function filterExcludedItems(items) {
-        if (excludedLibraryIds.size === 0) return items;
+        if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return items;
         return items.filter(item => !isItemExcluded(item));
     }
     
@@ -5965,8 +5970,25 @@
         
         try {
             const currentUser = await ApiClient.getCurrentUser();
-            excludedLibraryIds = new Set(currentUser?.Configuration?.MyMediaExcludes || []);
-            LOG('Excluded library IDs:', [...excludedLibraryIds]);
+            const latestExcludes = currentUser?.Configuration?.LatestItemsExcludes || [];
+            const mediaExcludes = currentUser?.Configuration?.MyMediaExcludes || [];
+            const allExcludedLibIds = [...new Set([...latestExcludes, ...mediaExcludes])];
+            excludedLibraryIds = new Set(allExcludedLibIds);
+            LOG('Excluded library IDs (LatestItemsExcludes + MyMediaExcludes):', allExcludedLibIds);
+
+            if (allExcludedLibIds.length > 0) {
+                const userId = ApiClient.getCurrentUserId();
+                const idFetches = allExcludedLibIds.map(libId =>
+                    ApiClient.getItems(userId, { ParentId: libId, Recursive: true, Limit: 10000 })
+                        .then(r => (r.Items || []).map(i => i.Id))
+                        .catch(e => { WARN('Failed fetching items for excluded library', libId, e); return []; })
+                );
+                const idArrays = await Promise.all(idFetches);
+                excludedItemIds = new Set(idArrays.flat());
+                LOG(`Excluded item IDs: ${excludedItemIds.size} items across ${allExcludedLibIds.length} libraries`);
+            } else {
+                excludedItemIds = new Set();
+            }
 
             LOG('Starting parallel initialization of home screen sections...');
 
@@ -6124,13 +6146,14 @@
     window.debugLibraryExclusions = async function() {
         LOG('=== Library Exclusion Diagnostics ===');
         LOG('Current excludedLibraryIds Set:', [...excludedLibraryIds]);
+        LOG('Current excludedItemIds count:', excludedItemIds.size);
 
         const userId = ApiClient.getCurrentUserId();
 
         // Show what getCurrentUser returns
         try {
             const user = await ApiClient.getCurrentUser();
-            LOG('user.Configuration:', user?.Configuration);
+            LOG('user.Configuration.LatestItemsExcludes:', user?.Configuration?.LatestItemsExcludes);
             LOG('user.Configuration.MyMediaExcludes:', user?.Configuration?.MyMediaExcludes);
         } catch (e) {
             LOG('Error calling getCurrentUser():', e);
