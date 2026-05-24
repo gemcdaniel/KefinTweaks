@@ -6120,6 +6120,44 @@
     };
 
 
+    // Debug function for library exclusion diagnostics
+    window.debugLibraryExclusions = async function() {
+        LOG('=== Library Exclusion Diagnostics ===');
+        LOG('Current excludedLibraryIds Set:', [...excludedLibraryIds]);
+
+        const userId = ApiClient.getCurrentUserId();
+
+        // Show what getCurrentUser returns
+        try {
+            const user = await ApiClient.getCurrentUser();
+            LOG('user.Configuration:', user?.Configuration);
+            LOG('user.Configuration.MyMediaExcludes:', user?.Configuration?.MyMediaExcludes);
+        } catch (e) {
+            LOG('Error calling getCurrentUser():', e);
+        }
+
+        // Show user views and their IDs
+        try {
+            const views = await ApiClient.getUserViews({}, userId);
+            LOG('getUserViews result:');
+            (views?.Items || []).forEach(v => LOG(`  View: ${v.Name} | Id: ${v.Id} | CollectionType: ${v.CollectionType}`));
+        } catch (e) {
+            LOG('Error calling getUserViews():', e);
+        }
+
+        // Fetch a few movies and show their parent fields
+        try {
+            const result = await ApiClient.getItems(userId, { IncludeItemTypes: 'Movie', Recursive: true, Limit: 3 });
+            LOG('Sample movie TopParentId values:');
+            (result?.Items || []).forEach(item => {
+                LOG(`  "${item.Name}" | TopParentId: ${item.TopParentId} | ParentId: ${item.ParentId} | ServerId: ${item.ServerId}`);
+                LOG(`    excluded by current filter: ${isItemExcluded(item)}`);
+            });
+        } catch (e) {
+            LOG('Error fetching sample movies:', e);
+        }
+    };
+
     // Debug function for seasonal sections
     window.debugSeasonalSections = function() {
         LOG('=== Seasonal Sections Debug ===');
