@@ -81,8 +81,13 @@
     
     // Create loading indicator element
     function createDiscoveryLoadingIndicator() {
+        if (cachedLoadingIndicator && cachedLoadingIndicator.isConnected) {
+            return cachedLoadingIndicator;
+        }
+
         let loadingDiv = document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
         if (loadingDiv) {
+            cachedLoadingIndicator = loadingDiv;
             return loadingDiv;
         }
 
@@ -93,35 +98,38 @@
         loadingDiv.innerHTML = `
             <div class="spinner"></div>
         `;
-            
+
         // Find the home sections container and append the loading indicator
         const container = document.querySelector('.libraryPage:not(.hide) .homeSectionsContainer');
         if (container) {
             container.appendChild(loadingDiv);
         }
 
+        cachedLoadingIndicator = loadingDiv;
         return loadingDiv;
     }
     
     // Show loading indicator
     function showDiscoveryLoadingIndicator() {
-        let loadingIndicator = document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
-        
-        if (!loadingIndicator) {
-            createDiscoveryLoadingIndicator();
+        const loadingIndicator = cachedLoadingIndicator?.isConnected
+            ? cachedLoadingIndicator
+            : createDiscoveryLoadingIndicator();
+
+        if (loadingIndicator) {
+            loadingIndicator.classList.add('show');
+            loadingIndicator.style.visibility = 'visible';
+            loadingIndicator.style.display = 'flex';
+            LOG('Discovery loading indicator shown');
         }
-        
-        loadingIndicator.classList.add('show');
-        loadingIndicator.style.visibility = 'visible';
-        loadingIndicator.style.display = 'flex';
-        LOG('Discovery loading indicator shown');
     }
-    
+
     // Hide loading indicator
     function hideDiscoveryLoadingIndicator() {
-        const loadingIndicator = document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
+        const loadingIndicator = cachedLoadingIndicator?.isConnected
+            ? cachedLoadingIndicator
+            : document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
         if (loadingIndicator) {
-            loadingIndicator.classList.remove('show');     
+            loadingIndicator.classList.remove('show');
             loadingIndicator.style.visibility = 'hidden';
 
             if (!enableInfiniteScroll) {
@@ -1110,6 +1118,39 @@
     let discoveryWheelHandler = null; // Reference to wheel handler for cleanup
     let discoveryTouchStartHandler = null; // Reference to touchstart handler for cleanup
     let discoveryTouchMoveHandler = null; // Reference to touchmove handler for cleanup
+    let cachedLoadingIndicator = null; // Cached reference to the discovery loading indicator element
+    let cachedActiveTabIndex = null; // Cached active header-tab index for scroll handlers
+
+    /**
+     * Resolves as soon as `selector` matches an element in the DOM.
+     * Uses MutationObserver so it reacts immediately instead of polling.
+     * Falls back to null after `timeout` ms (default 3 s) — same ceiling as
+     * the old 100 × 100 ms retry loop.
+     */
+    function waitForElement(selector, timeout = 3000) {
+        return new Promise((resolve) => {
+            const existing = document.querySelector(selector);
+            if (existing) { resolve(existing); return; }
+
+            const observer = new MutationObserver(() => {
+                const el = document.querySelector(selector);
+                if (el) { observer.disconnect(); resolve(el); }
+            });
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class']
+            });
+            setTimeout(() => { observer.disconnect(); resolve(null); }, timeout);
+        });
+    }
+
+    /** Refreshes the cached active header-tab index. */
+    function refreshActiveTabIndex() {
+        const el = document.querySelector('.headerTabs .emby-tab-button-active');
+        cachedActiveTabIndex = el ? el.getAttribute('data-index') : null;
+    }
 
     /************ Helpers ************/
 
@@ -4513,7 +4554,9 @@
                     const groupToRender = discoveryBuffer.shift();
                     if (groupToRender && groupToRender.length > 0) {
                         // Remove loading indicator from DOM before rendering sections to prevent scroll jump
-                        const loadingIndicator = document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
+                        const loadingIndicator = cachedLoadingIndicator?.isConnected
+                            ? cachedLoadingIndicator
+                            : document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
                         let loadingIndicatorClone = null;
                         if (loadingIndicator && loadingIndicator.parentNode) {
                             loadingIndicatorClone = loadingIndicator.cloneNode(true);
@@ -4611,19 +4654,16 @@
         
         LOG(`Pre-rendering discovery group with ${group.length} sections`);
         
-        const preRenderedSections = [];
-        
-        for (const sectionData of group) {
-            try {
-                const sectionElement = await buildDiscoverySectionElement(sectionData);
-                if (sectionElement) {
-                    preRenderedSections.push(sectionElement);
-                }
-            } catch (err) {
-                ERR(`Error pre-rendering section ${sectionData.type}:`, err);
-            }
-        }
-        
+        const results = await Promise.all(
+            group.map(sectionData =>
+                buildDiscoverySectionElement(sectionData).catch(err => {
+                    ERR(`Error pre-rendering section ${sectionData.type}:`, err);
+                    return null;
+                })
+            )
+        );
+        const preRenderedSections = results.filter(Boolean);
+
         LOG(`Pre-rendered ${preRenderedSections.length}/${group.length} sections`);
         return preRenderedSections;
     }
@@ -4667,7 +4707,9 @@
         
         // Remove loading indicator from DOM before revealing sections to prevent scroll jump
         // We'll re-add it at the end after sections are revealed
-        const loadingIndicator = document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
+        const loadingIndicator = cachedLoadingIndicator?.isConnected
+            ? cachedLoadingIndicator
+            : document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
         let loadingIndicatorClone = null;
         if (loadingIndicator && loadingIndicator.parentNode) {
             loadingIndicatorClone = loadingIndicator.cloneNode(true);
@@ -4820,7 +4862,7 @@
 
             if (typeof sectionData === 'object' && sectionData.type === 'custom-discovery') {
                 const baseSection = sectionData.data || {};
-                const clonedSection = JSON.parse(JSON.stringify(baseSection));
+                const clonedSection = structuredClone(baseSection);
                 const uniqueSuffix = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
                 clonedSection.id = `${clonedSection.id || clonedSection.name || 'custom'}-discovery-${uniqueSuffix}`;
                 clonedSection.order = DISCOVERY_ORDER + renderedSections.size;
@@ -5158,9 +5200,6 @@
      * Removes scroll-based infinite loading handler
      */
     function removeScrollBasedLoading() {
-        // Fade out message for "loading more"
-        const loadingIndicator = document.querySelector('.libraryPage:not(.hide) #discovery-loading-indicator');
-
         if (discoveryScrollHandler) {
             window.removeEventListener('scroll', discoveryScrollHandler);
             discoveryScrollHandler = null;
@@ -5186,9 +5225,12 @@
      * Sets up scroll-based infinite loading
      * @param {HTMLElement} container - Container to watch for scroll
      */
-    function setupScrollBasedLoading(container) {        
+    function setupScrollBasedLoading(container) {
         // Remove existing handler if present (make idempotent)
         removeScrollBasedLoading();
+
+        // Cache the active tab index once — tabs don't change during a home page session.
+        refreshActiveTabIndex();
         
         let lastScrollTop = 0;
         let scrollTimeout = null;
@@ -5205,8 +5247,7 @@
             }
 
             // Only enable scroll-based loading on the home page first tab
-            const activeTab = document.querySelector('.headerTabs .emby-tab-button-active').getAttribute('data-index');
-            if (activeTab !== '0') {
+            if (cachedActiveTabIndex !== '0') {
                 return;
             }
 
@@ -5215,7 +5256,7 @@
             const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
             lastScrollTop = scrollTop;
         };
-        
+
         // Store handler reference and add scroll listener
         discoveryScrollHandler = handleScroll;
         window.addEventListener('scroll', handleScroll, { passive: true });
@@ -5228,8 +5269,7 @@
             if (!isHomePage) return;
 
             // Only on first tab
-            const activeTab = document.querySelector('.headerTabs .emby-tab-button-active').getAttribute('data-index');
-            if (activeTab !== '0') return;
+            if (cachedActiveTabIndex !== '0') return;
 
             if (isRenderingDiscoveryGroup) return;
 
@@ -5269,8 +5309,7 @@
             if (!isHomePage) return;
 
             // Only on first tab
-            const activeTab = document.querySelector('.headerTabs .emby-tab-button-active').getAttribute('data-index');
-            if (activeTab !== '0') return;
+            if (cachedActiveTabIndex !== '0') return;
 
             if (isRenderingDiscoveryGroup) return;
 
@@ -5932,20 +5971,10 @@
      * Checks if custom sections are already rendered and renders them if not
      */
     async function checkAndRenderCustomSections() {        
-        // Try to find the home sections container with retry logic
-        // Retry every 100ms for up to 3 seconds
-        let homeSectionsContainer = null;
-        const maxRetries = 100;
-        let retries = 0;
-        
-        while (!homeSectionsContainer && retries < maxRetries) {
-            homeSectionsContainer = document.querySelector('.libraryPage:not(.hide) .homeSectionsContainer');
-            
-            if (!homeSectionsContainer) {
-                retries++;
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-        }
+        // Wait for the home sections container to appear in the DOM.
+        // MutationObserver reacts immediately; falls back to null after 3 s.
+        cachedLoadingIndicator = null; // invalidate cached reference on each visit
+        const homeSectionsContainer = await waitForElement('.libraryPage:not(.hide) .homeSectionsContainer');
         
         if (!homeSectionsContainer) {
             LOG('Home sections container not found after 3 seconds');

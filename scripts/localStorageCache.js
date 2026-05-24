@@ -40,16 +40,15 @@
             }
         }
 
-        // Get cached data if valid
+        // Get cached data if valid — single localStorage read and single JSON.parse.
         get(cacheName, userId = null) {
-            if (!this.isCacheValid(cacheName, userId)) {
-                return null;
-            }
-            
             const key = this.getCacheKey(cacheName, userId);
+            const cached = localStorage.getItem(key);
+            if (!cached) return null;
             try {
-                const cached = localStorage.getItem(key);
                 const data = JSON.parse(cached);
+                const ttl = data.ttl || this.ttl;
+                if ((Date.now() - data.timestamp) >= ttl) return null;
                 return data.payload;
             } catch {
                 return null;
