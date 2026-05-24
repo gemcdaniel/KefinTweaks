@@ -1045,6 +1045,18 @@
     // Processing flag to prevent parallel execution
     let isProcessing = false;
     let isLoadingDiscoveryGroup = false;
+
+    // Library IDs excluded from the home screen (user.Configuration.MyMediaExcludes)
+    let excludedLibraryIds = new Set();
+
+    function isItemExcluded(item) {
+        if (excludedLibraryIds.size === 0) return false;
+        return excludedLibraryIds.has(item.TopParentId);
+    }
+    function filterExcludedItems(items) {
+        if (excludedLibraryIds.size === 0) return items;
+        return items.filter(item => !isItemExcluded(item));
+    }
     
     // Seasonal data storage
     let halloweenMovies = [];
@@ -1121,6 +1133,7 @@
             }
             
             const data = await response.json();
+            data.Items = filterExcludedItems(data.Items || []);
             return data;
         } catch (err) {
             ERR(`Failed to fetch collection data for ${collectionId}:`, err);
@@ -1292,7 +1305,8 @@
             } else if (type === 'Parent') {
                 // Parent type: query with ParentId(s) or without if source is empty ("Any")
                 const existingIds = new Set();
-                
+                const filteredSources = sources.filter(id => !excludedLibraryIds.has(id));
+
                 if (sources.length === 0) {
                     // No parent IDs specified - query all items (no ParentId filter)
                     try {
@@ -1314,7 +1328,7 @@
                     }
                 } else {
                     // Query each parent ID separately
-                    for (const parentId of sources) {
+                    for (const parentId of filteredSources) {
                         try {
                             const queryParams = {
                                 ParentId: parentId,
@@ -1353,7 +1367,7 @@
             WARN('Error loading items for section config:', err);
         }
 
-        return allItems;
+        return filterExcludedItems(allItems);
     }
 
     /**
@@ -1510,6 +1524,7 @@
      */
     async function renderRecentlyAddedInLibrarySection(libraryId, sectionConfig, container) {
         if (sectionConfig.enabled === false) return false;
+        if (excludedLibraryIds.has(libraryId)) return false;
 
         const userId = ApiClient.getCurrentUserId();
         const itemLimit = sectionConfig.itemLimit || 30;
@@ -1756,7 +1771,7 @@
                     const data = await response.json();
                     return {
                         name: query.name,
-                        items: data.Items || []
+                        items: filterExcludedItems(data.Items || [])
                     };
                 })
             );
@@ -2260,7 +2275,7 @@
             }
             
             const data = await response.json();
-            return data.Items || [];
+            return filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Failed to fetch favorite items:`, err);
             return [];
@@ -2356,11 +2371,12 @@
     async function getWatchlistData() {
         const watchlistData = await window.apiHelper.getWatchlistItems({ IncludeItemTypes: 'Movie,Series,Season,Episode' }, true);
         
-        return watchlistData.Items.sort((a, b) => {
+        const sorted = watchlistData.Items.sort((a, b) => {
             const dateA = new Date(a.PremiereDate || 0);
             const dateB = new Date(b.PremiereDate || 0);
-            return dateB - dateA;    
+            return dateB - dateA;
         });
+        return filterExcludedItems(sorted);
     }
 
     /**
@@ -2374,7 +2390,7 @@
         }
         
         const cache = new window.LocalStorageCache();
-        return cache.get('movies') || [];
+        return filterExcludedItems(cache.get('movies') || []);
     }
 
     /**
@@ -2388,7 +2404,7 @@
         }
         
         const cache = new window.LocalStorageCache();
-        return cache.getChunked('progress') || [];
+        return filterExcludedItems(cache.getChunked('progress') || []);
     }
 
     /**
@@ -2547,8 +2563,8 @@
             const librariesResponse = await apiClient.getItems();
             const libraries = librariesResponse.Items || [];
             
-            // Filter for TV show libraries
-            const tvLibraries = libraries.filter(lib => lib.CollectionType === 'tvshows');
+            // Filter for TV show libraries, honoring home screen exclusions
+            const tvLibraries = libraries.filter(lib => lib.CollectionType === 'tvshows' && !excludedLibraryIds.has(lib.Id));
             
             if (tvLibraries.length === 0) {
                 LOG('No TV show libraries found');
@@ -2655,7 +2671,7 @@
             }
             
             const data = await response.json();
-            return data.Items || [];
+            return filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Error fetching items by studio ${studioId}:`, err);
             return [];
@@ -2689,7 +2705,7 @@
             }
             
             const data = await response.json();
-            return data.Items || [];
+            return filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Error fetching items by person ${personId}:`, err);
             return [];
@@ -2757,7 +2773,7 @@
         }
 
         const data = await window.apiHelper.getItems(options, true);
-        return data.Items || [];
+        return filterExcludedItems(data.Items || []);
     }
 
     /**
@@ -2810,7 +2826,7 @@
         const deduplicatedEpisodes = deduplicateEpisodesBySeriesAndDate(episodes);
         
         LOG(`Fetched ${episodes.length} episodes, deduplicated to ${deduplicatedEpisodes.length} episodes`);
-        return deduplicatedEpisodes;
+        return filterExcludedItems(deduplicatedEpisodes);
     }
 
     /**
@@ -3101,7 +3117,11 @@
 
             // Get the parent id from the root libraryies with CollectionType: "tvshows"
             const libraries = await ApiClient.getItems();
-            const parentIds = libraries.Items.filter(lib => lib.CollectionType === 'tvshows')?.map(lib => lib.Id);
+            const parentIds = libraries.Items
+                .filter(lib => lib.CollectionType === 'tvshows' && !excludedLibraryIds.has(lib.Id))
+                .map(lib => lib.Id);
+
+            if (parentIds.length === 0) return false;
 
             let url = `${serverAddress}/Shows/Upcoming?Limit=${itemLimit}&Fields=AirTime,SeriesName,ParentIndexNumber,IndexNumber&UserId=${userId}&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Banner,Thumb&EnableTotalRecordCount=false&ParentIds=${parentIds.join(',')}`;
 
@@ -3111,8 +3131,8 @@
             }
 
             const data = await window.apiHelper.getData(url, true);
-            let episodes = data.Items || [];
-            
+            let episodes = filterExcludedItems(data.Items || []);
+
             // Filter out episodes that have already aired (before today)
             const today = new Date();
             today.setHours(0, 0, 0, 0); // Set to start of today
@@ -3361,8 +3381,8 @@
                 Limit: itemLimit
             });
             
-            const watchedMovies = watchedMoviesResponse.Items || [];
-            
+            const watchedMovies = filterExcludedItems(watchedMoviesResponse.Items || []);
+
             if (watchedMovies.length === 0) {
                 return false; // Auto-hide empty sections
             }
@@ -3510,9 +3530,9 @@
             
             const response = await ApiClient.fetch({ url, method: 'GET' });
             const data = await response.json();
-            
-            return data.Items || [];
-            
+
+            return filterExcludedItems(data.Items || []);
+
         } catch (err) {
             ERR('Error fetching items by IDs:', err);
             return [];
@@ -5944,8 +5964,12 @@
         homeSectionsContainer.dataset.customSectionsRendered = 'true';
         
         try {
+            const currentUser = await ApiClient.getCurrentUser();
+            excludedLibraryIds = new Set(currentUser?.Configuration?.MyMediaExcludes || []);
+            LOG('Excluded library IDs:', [...excludedLibraryIds]);
+
             LOG('Starting parallel initialization of home screen sections...');
-            
+
             // Run all initialization functions in parallel for faster loading
             let initPromises = [];
 
