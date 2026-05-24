@@ -4742,10 +4742,10 @@
             }
             
             const data = await response.json();
-            const items = data.Items || [];
-            
+            const items = filterExcludedItems(data.Items || []);
+
             if (items.length === 0) return null;
-            
+
             const viewMoreUrl = `/web/#/list.html?genreId=${genre.Id}&serverId=${serverId}`;
             
             return {
@@ -4838,7 +4838,8 @@
                 sectionKey = sectionData.sectionKey || getDiscoverySectionKeyFromType(sectionData.type);
                 sectionConfig = sectionData.config || getDiscoverySectionSettings(sectionKey);
                 if (!sectionConfig || sectionConfig.enabled === false) return false;
-                items = sectionData.items;
+                items = filterExcludedItems(sectionData.items);
+                if (!items || items.length === 0) return false;
                 viewMoreUrl = sectionData.viewMoreUrl || null;
                 items = applyDiscoverySectionOrdering(items, sectionConfig);
                 if (!items || items.length === 0) return false;
@@ -5977,25 +5978,30 @@
             LOG('Excluded library IDs (LatestItemsExcludes + MyMediaExcludes):', allExcludedLibIds);
 
             if (allExcludedLibIds.length > 0) {
-                try {
-                    const userId = ApiClient.getCurrentUserId();
-                    const idFetches = allExcludedLibIds.map(libId =>
-                        ApiClient.getItems(userId, {
-                            ParentId: libId,
-                            Recursive: true,
-                            Limit: 10000,
-                            IncludeItemTypes: 'Movie,Episode,Series,Season,BoxSet,Video'
-                        })
-                            .then(r => (r.Items || []).map(i => i.Id))
-                            .catch(e => { WARN('Failed fetching items for excluded library', libId, e); return []; })
-                    );
-                    const idArrays = await Promise.all(idFetches);
-                    excludedItemIds = new Set(idArrays.flat());
-                    LOG(`Excluded item IDs: ${excludedItemIds.size} items across ${allExcludedLibIds.length} libraries`);
-                } catch (e) {
-                    WARN('Failed pre-fetching excluded item IDs; filtering will be skipped:', e);
-                    excludedItemIds = new Set();
-                }
+                // Fire-and-forget: populate excludedItemIds in the background so initial section
+                // rendering is not delayed.  By the time the user clicks "Discover More" the
+                // pre-fetch will already be complete and all filtering will be accurate.
+                const userId = ApiClient.getCurrentUserId();
+                (async () => {
+                    try {
+                        const idFetches = allExcludedLibIds.map(libId =>
+                            ApiClient.getItems(userId, {
+                                ParentId: libId,
+                                Recursive: true,
+                                Limit: 10000,
+                                IncludeItemTypes: 'Movie,Episode,Series,Season,BoxSet,Video'
+                            })
+                                .then(r => (r.Items || []).map(i => i.Id))
+                                .catch(e => { WARN('Failed fetching items for excluded library', libId, e); return []; })
+                        );
+                        const idArrays = await Promise.all(idFetches);
+                        excludedItemIds = new Set(idArrays.flat());
+                        LOG(`Excluded item IDs: ${excludedItemIds.size} items across ${allExcludedLibIds.length} libraries`);
+                    } catch (e) {
+                        WARN('Failed pre-fetching excluded item IDs:', e);
+                        excludedItemIds = new Set();
+                    }
+                })();
             } else {
                 excludedItemIds = new Set();
             }
