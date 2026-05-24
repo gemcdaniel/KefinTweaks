@@ -5977,15 +5977,25 @@
             LOG('Excluded library IDs (LatestItemsExcludes + MyMediaExcludes):', allExcludedLibIds);
 
             if (allExcludedLibIds.length > 0) {
-                const userId = ApiClient.getCurrentUserId();
-                const idFetches = allExcludedLibIds.map(libId =>
-                    ApiClient.getItems(userId, { ParentId: libId, Recursive: true, Limit: 10000 })
-                        .then(r => (r.Items || []).map(i => i.Id))
-                        .catch(e => { WARN('Failed fetching items for excluded library', libId, e); return []; })
-                );
-                const idArrays = await Promise.all(idFetches);
-                excludedItemIds = new Set(idArrays.flat());
-                LOG(`Excluded item IDs: ${excludedItemIds.size} items across ${allExcludedLibIds.length} libraries`);
+                try {
+                    const userId = ApiClient.getCurrentUserId();
+                    const idFetches = allExcludedLibIds.map(libId =>
+                        ApiClient.getItems(userId, {
+                            ParentId: libId,
+                            Recursive: true,
+                            Limit: 10000,
+                            IncludeItemTypes: 'Movie,Episode,Series,Season,BoxSet,Video'
+                        })
+                            .then(r => (r.Items || []).map(i => i.Id))
+                            .catch(e => { WARN('Failed fetching items for excluded library', libId, e); return []; })
+                    );
+                    const idArrays = await Promise.all(idFetches);
+                    excludedItemIds = new Set(idArrays.flat());
+                    LOG(`Excluded item IDs: ${excludedItemIds.size} items across ${allExcludedLibIds.length} libraries`);
+                } catch (e) {
+                    WARN('Failed pre-fetching excluded item IDs; filtering will be skipped:', e);
+                    excludedItemIds = new Set();
+                }
             } else {
                 excludedItemIds = new Set();
             }
