@@ -1069,7 +1069,8 @@
         if (item.TopParentId && excludedLibraryIds.has(item.TopParentId)) return true;
         return false;
     }
-    function filterExcludedItems(items) {
+    async function filterExcludedItems(items) {
+        await excludedItemsReady;
         if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return items;
         return items.filter(item => !isItemExcluded(item));
     }
@@ -1182,7 +1183,7 @@
             }
             
             const data = await response.json();
-            data.Items = filterExcludedItems(data.Items || []);
+            data.Items = await filterExcludedItems(data.Items || []);
             return data;
         } catch (err) {
             ERR(`Failed to fetch collection data for ${collectionId}:`, err);
@@ -1416,8 +1417,7 @@
             WARN('Error loading items for section config:', err);
         }
 
-        await excludedItemsReady;
-        return filterExcludedItems(allItems);
+        return await filterExcludedItems(allItems);
     }
 
     /**
@@ -1821,7 +1821,7 @@
                     const data = await response.json();
                     return {
                         name: query.name,
-                        items: filterExcludedItems(data.Items || [])
+                        items: await filterExcludedItems(data.Items || [])
                     };
                 })
             );
@@ -2325,7 +2325,7 @@
             }
             
             const data = await response.json();
-            return filterExcludedItems(data.Items || []);
+            return await filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Failed to fetch favorite items:`, err);
             return [];
@@ -2426,7 +2426,7 @@
             const dateB = new Date(b.PremiereDate || 0);
             return dateB - dateA;
         });
-        return filterExcludedItems(sorted);
+        return await filterExcludedItems(sorted);
     }
 
     /**
@@ -2440,7 +2440,7 @@
         }
         
         const cache = new window.LocalStorageCache();
-        return filterExcludedItems(cache.get('movies') || []);
+        return await filterExcludedItems(cache.get('movies') || []);
     }
 
     /**
@@ -2454,7 +2454,7 @@
         }
         
         const cache = new window.LocalStorageCache();
-        return filterExcludedItems(cache.getChunked('progress') || []);
+        return await filterExcludedItems(cache.getChunked('progress') || []);
     }
 
     /**
@@ -2721,7 +2721,7 @@
             }
             
             const data = await response.json();
-            return filterExcludedItems(data.Items || []);
+            return await filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Error fetching items by studio ${studioId}:`, err);
             return [];
@@ -2755,7 +2755,7 @@
             }
             
             const data = await response.json();
-            return filterExcludedItems(data.Items || []);
+            return await filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Error fetching items by person ${personId}:`, err);
             return [];
@@ -2823,7 +2823,7 @@
         }
 
         const data = await window.apiHelper.getItems(options, true);
-        return filterExcludedItems(data.Items || []);
+        return await filterExcludedItems(data.Items || []);
     }
 
     /**
@@ -2876,7 +2876,7 @@
         const deduplicatedEpisodes = deduplicateEpisodesBySeriesAndDate(episodes);
         
         LOG(`Fetched ${episodes.length} episodes, deduplicated to ${deduplicatedEpisodes.length} episodes`);
-        return filterExcludedItems(deduplicatedEpisodes);
+        return await filterExcludedItems(deduplicatedEpisodes);
     }
 
     /**
@@ -3181,7 +3181,7 @@
             }
 
             const data = await window.apiHelper.getData(url, true);
-            let episodes = filterExcludedItems(data.Items || []);
+            const episodes = await filterExcludedItems(data.Items || []);
 
             // Filter out episodes that have already aired (before today)
             const today = new Date();
@@ -3431,7 +3431,7 @@
                 Limit: itemLimit
             });
             
-            const watchedMovies = filterExcludedItems(watchedMoviesResponse.Items || []);
+            const watchedMovies = await filterExcludedItems(watchedMoviesResponse.Items || []);
 
             if (watchedMovies.length === 0) {
                 return false; // Auto-hide empty sections
@@ -3581,7 +3581,7 @@
             const response = await ApiClient.fetch({ url, method: 'GET' });
             const data = await response.json();
 
-            return filterExcludedItems(data.Items || []);
+            return await filterExcludedItems(data.Items || []);
 
         } catch (err) {
             ERR('Error fetching items by IDs:', err);
@@ -4788,8 +4788,7 @@
             }
             
             const data = await response.json();
-            await excludedItemsReady;
-            const items = filterExcludedItems(data.Items || []);
+            const items = await filterExcludedItems(data.Items || []);
 
             if (items.length === 0) return null;
 
@@ -4885,8 +4884,7 @@
                 sectionKey = sectionData.sectionKey || getDiscoverySectionKeyFromType(sectionData.type);
                 sectionConfig = sectionData.config || getDiscoverySectionSettings(sectionKey);
                 if (!sectionConfig || sectionConfig.enabled === false) return false;
-                await excludedItemsReady;
-                items = filterExcludedItems(sectionData.items);
+                items = await filterExcludedItems(sectionData.items);
                 if (!items || items.length === 0) return false;
                 viewMoreUrl = sectionData.viewMoreUrl || null;
                 items = applyDiscoverySectionOrdering(items, sectionConfig);
