@@ -363,48 +363,44 @@
             totalButtons += customTabsCount;
 
             if (customTabsCount > 0 && totalButtons > buttons.length) {
-                const tabsSlider = headerTabs.querySelector('.emby-tabs-slider');
-                if (tabsSlider) {
-                    const checkAllTabsPresent = () => {
-                        for (let i = 0; i < customTabsCount; i++) {
-                            if (!tabsSlider.querySelector(`#customTabButton_${i}`)) return false;
+                // Check by button count rather than by specific IDs — resilient to any
+                // version of the Custom Tabs Plugin regardless of how it names its elements.
+                const checkAllTabsPresent = () =>
+                    headerTabs.querySelectorAll('.emby-tab-button').length >= totalButtons;
+
+                // Shared handler — called from both the immediate path and the observer.
+                const applyTabListeners = (obs) => {
+                    if (obs) obs.disconnect();
+                    LOG('Custom tabs present, adding click listeners');
+                    syncActiveTabState();
+                    headerTabs.querySelectorAll('.emby-tab-button').forEach(button => {
+                        if (button.dataset.kefin !== 'true') {
+                            button.addEventListener('click', handleTabClick);
+                            button.dataset.kefin = 'true';
                         }
-                        return true;
-                    };
+                    });
+                };
 
-                    // Shared handler — used by both the immediate path and the observer path.
-                    const applyTabListeners = (obs) => {
-                        if (obs) obs.disconnect();
-                        LOG('Custom tabs present, adding click listeners');
-                        syncActiveTabState();
-                        headerTabs.querySelectorAll('.emby-tab-button').forEach(button => {
-                            if (button.dataset.kefin !== 'true') {
-                                button.addEventListener('click', handleTabClick);
-                                button.dataset.kefin = 'true';
-                            }
-                        });
-                    };
+                if (checkAllTabsPresent()) {
+                    applyTabListeners(null);
+                } else {
+                    LOG('Waiting for custom tabs to be rendered...');
+                    // Observe headerTabs (the stable parent) rather than .emby-tabs-slider,
+                    // which can be replaced by the Custom Tabs Plugin during rendering.
+                    const observer = new MutationObserver((mutations, obs) => {
+                        if (checkAllTabsPresent()) applyTabListeners(obs);
+                    });
+                    observer.observe(headerTabs, { childList: true, subtree: true });
 
+                    // Immediate re-check closes the race window between the check above
+                    // and observer.observe() starting.
                     if (checkAllTabsPresent()) {
-                        applyTabListeners(null);
+                        applyTabListeners(observer);
                     } else {
-                        LOG('Waiting for custom tabs to be rendered...');
-                        const observer = new MutationObserver((mutations, obs) => {
-                            if (checkAllTabsPresent()) applyTabListeners(obs);
-                        });
-
-                        observer.observe(tabsSlider, { childList: true, subtree: true });
-
-                        // Re-check immediately to close the race window between the check
-                        // above and observer.observe() — tabs could have been inserted in between.
-                        if (checkAllTabsPresent()) {
-                            applyTabListeners(observer);
-                        } else {
-                            setTimeout(() => {
-                                observer.disconnect();
-                                WARN('MutationObserver timeout reached, stopped waiting for custom tabs');
-                            }, 10000);
-                        }
+                        setTimeout(() => {
+                            observer.disconnect();
+                            WARN('MutationObserver timeout reached, stopped waiting for custom tabs');
+                        }, 10000);
                     }
                 }
             }
