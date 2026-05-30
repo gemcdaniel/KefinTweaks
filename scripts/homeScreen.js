@@ -1063,19 +1063,14 @@
     let excludedItemsReady = Promise.resolve();
 
     function isItemExcluded(item) {
-        if (excludedLibraryIds.size === 0) return false;
-        // ParentId is the library folder for top-level items (Movie, Series) and is
-        // always present in standard Jellyfin item responses without needing extra Fields.
-        if (item.ParentId && excludedLibraryIds.has(item.ParentId)) return true;
-        // TopParentId fallback — present in detail-view responses.
+        if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return false;
+        if (excludedItemIds.has(item.Id)) return true;
         if (item.TopParentId && excludedLibraryIds.has(item.TopParentId)) return true;
-        // Full item-ID set — populated by the background pre-fetch; catches nested items
-        // (Episodes, Seasons) whose ParentId points to a Season/Series, not the library.
-        if (excludedItemIds.size > 0 && excludedItemIds.has(item.Id)) return true;
         return false;
     }
-    function filterExcludedItems(items) {
-        if (excludedLibraryIds.size === 0) return items;
+    async function filterExcludedItems(items) {
+        await excludedItemsReady;
+        if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return items;
         return items.filter(item => !isItemExcluded(item));
     }
     
