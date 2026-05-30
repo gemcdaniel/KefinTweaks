@@ -1058,6 +1058,9 @@
     let excludedLibraryIds = new Set();
     // Item IDs belonging to excluded libraries (pre-fetched at init; TopParentId is not in list responses)
     let excludedItemIds = new Set();
+    // Resolves when excludedItemIds has been fully populated for the current page visit.
+    // Sections await this before calling filterExcludedItems so they never filter against an empty set.
+    let excludedItemsReady = Promise.resolve();
 
     function isItemExcluded(item) {
         if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return false;
@@ -1413,6 +1416,7 @@
             WARN('Error loading items for section config:', err);
         }
 
+        await excludedItemsReady;
         return filterExcludedItems(allItems);
     }
 
@@ -4784,6 +4788,7 @@
             }
             
             const data = await response.json();
+            await excludedItemsReady;
             const items = filterExcludedItems(data.Items || []);
 
             if (items.length === 0) return null;
@@ -4880,6 +4885,7 @@
                 sectionKey = sectionData.sectionKey || getDiscoverySectionKeyFromType(sectionData.type);
                 sectionConfig = sectionData.config || getDiscoverySectionSettings(sectionKey);
                 if (!sectionConfig || sectionConfig.enabled === false) return false;
+                await excludedItemsReady;
                 items = filterExcludedItems(sectionData.items);
                 if (!items || items.length === 0) return false;
                 viewMoreUrl = sectionData.viewMoreUrl || null;
@@ -5974,6 +5980,7 @@
         // Wait for the home sections container to appear in the DOM.
         // MutationObserver reacts immediately; falls back to null after 3 s.
         cachedLoadingIndicator = null; // invalidate cached reference on each visit
+        excludedItemsReady = Promise.resolve(); // reset for this page visit
         const homeSectionsContainer = await waitForElement('.libraryPage:not(.hide) .homeSectionsContainer');
         
         if (!homeSectionsContainer) {
@@ -6007,11 +6014,12 @@
             LOG('Excluded library IDs (LatestItemsExcludes + MyMediaExcludes):', allExcludedLibIds);
 
             if (allExcludedLibIds.length > 0) {
-                // Fire-and-forget: populate excludedItemIds in the background so initial section
-                // rendering is not delayed.  By the time the user clicks "Discover More" the
-                // pre-fetch will already be complete and all filtering will be accurate.
+                // Run the excluded-item fetch in the background (sections start at the same time)
+                // but store the Promise so every filterExcludedItems call can await it.
+                // By the time a section finishes its own API call and reaches the filter step,
+                // this fetch will typically have already resolved — zero extra latency in practice.
                 const userId = ApiClient.getCurrentUserId();
-                (async () => {
+                excludedItemsReady = (async () => {
                     try {
                         const idFetches = allExcludedLibIds.map(libId =>
                             ApiClient.getItems(userId, {
@@ -6033,6 +6041,7 @@
                 })();
             } else {
                 excludedItemIds = new Set();
+                excludedItemsReady = Promise.resolve();
             }
 
             LOG('Starting parallel initialization of home screen sections...');
