@@ -2438,9 +2438,9 @@
             WARN('LocalStorageCache not available');
             return [];
         }
-        
+
         const cache = new window.LocalStorageCache();
-        return await filterExcludedItems(cache.get('movies') || []);
+        return cache.get('movies') || [];
     }
 
     /**
@@ -2452,9 +2452,9 @@
             WARN('LocalStorageCache not available');
             return [];
         }
-        
+
         const cache = new window.LocalStorageCache();
-        return await filterExcludedItems(cache.getChunked('progress') || []);
+        return cache.getChunked('progress') || [];
     }
 
     /**
@@ -6139,7 +6139,7 @@
         checkAndRenderCustomSections();
     };
 
-    window.debugCustomSections = function() {
+    window.debugCustomSections = async function() {
         LOG('Custom sections configuration:', customHomeSections);
         LOG('New and Trending configuration - enableNewAndTrending:', enableNewAndTrending, 'enableNewMovies:', enableNewMovies, 'enableNewEpisodes:', enableNewEpisodes, 'enableTrending:', enableTrending);
         LOG('Discovery configuration - enableWatchlist:', enableWatchlist, 'enableDiscovery:', enableDiscovery, 'enableSeasonal:', enableSeasonal);
@@ -6181,7 +6181,7 @@
         
         // Check discovery section data availability
         if (enableWatchlist) {
-            const watchlistData = getWatchlistData();
+            const watchlistData = await getWatchlistData();
             LOG('Watchlist data available:', watchlistData.length, 'items');
         }
         
@@ -6346,7 +6346,7 @@
         }
         
         // Test watchlist data
-        const watchlistData = getWatchlistData();
+        const watchlistData = await getWatchlistData();
         LOG('Watchlist data available:', watchlistData.length, 'items');
         
         // Test movie history
