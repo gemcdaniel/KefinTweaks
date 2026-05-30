@@ -369,8 +369,11 @@
                     headerTabs.querySelectorAll('.emby-tab-button').length >= totalButtons;
 
                 // Shared handler — called from both the immediate path and the observer.
+                // Cancels the fallback timeout so it doesn't fire after the observer already won.
+                let tabTimeoutId = null;
                 const applyTabListeners = (obs) => {
                     if (obs) obs.disconnect();
+                    clearTimeout(tabTimeoutId);
                     LOG('Custom tabs present, adding click listeners');
                     syncActiveTabState();
                     headerTabs.querySelectorAll('.emby-tab-button').forEach(button => {
@@ -397,7 +400,7 @@
                     if (checkAllTabsPresent()) {
                         applyTabListeners(observer);
                     } else {
-                        setTimeout(() => {
+                        tabTimeoutId = setTimeout(() => {
                             observer.disconnect();
                             WARN('MutationObserver timeout reached, stopped waiting for custom tabs');
                         }, 10000);
