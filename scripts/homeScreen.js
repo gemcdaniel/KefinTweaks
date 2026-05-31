@@ -1068,8 +1068,7 @@
         if (item.TopParentId && excludedLibraryIds.has(item.TopParentId)) return true;
         return false;
     }
-    async function filterExcludedItems(items) {
-        await excludedItemsReady;
+    function filterExcludedItems(items) {
         if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return items;
         return items.filter(item => !isItemExcluded(item));
     }
@@ -1416,7 +1415,8 @@
             WARN('Error loading items for section config:', err);
         }
 
-        return await filterExcludedItems(allItems);
+        await excludedItemsReady;
+        return filterExcludedItems(allItems);
     }
 
     /**
@@ -2822,7 +2822,8 @@
         }
 
         const data = await window.apiHelper.getItems(options, true);
-        return await filterExcludedItems(data.Items || []);
+        await excludedItemsReady;
+        return filterExcludedItems(data.Items || []);
     }
 
     /**
@@ -2875,7 +2876,8 @@
         const deduplicatedEpisodes = deduplicateEpisodesBySeriesAndDate(episodes);
         
         LOG(`Fetched ${episodes.length} episodes, deduplicated to ${deduplicatedEpisodes.length} episodes`);
-        return await filterExcludedItems(deduplicatedEpisodes);
+        await excludedItemsReady;
+        return filterExcludedItems(deduplicatedEpisodes);
     }
 
     /**
@@ -3430,7 +3432,8 @@
                 Limit: itemLimit
             });
             
-            const watchedMovies = await filterExcludedItems(watchedMoviesResponse.Items || []);
+            await excludedItemsReady;
+            const watchedMovies = filterExcludedItems(watchedMoviesResponse.Items || []);
 
             if (watchedMovies.length === 0) {
                 return false; // Auto-hide empty sections
@@ -4787,7 +4790,8 @@
             }
             
             const data = await response.json();
-            const items = await filterExcludedItems(data.Items || []);
+            await excludedItemsReady;
+            const items = filterExcludedItems(data.Items || []);
 
             if (items.length === 0) return null;
 
@@ -4883,7 +4887,8 @@
                 sectionKey = sectionData.sectionKey || getDiscoverySectionKeyFromType(sectionData.type);
                 sectionConfig = sectionData.config || getDiscoverySectionSettings(sectionKey);
                 if (!sectionConfig || sectionConfig.enabled === false) return false;
-                items = await filterExcludedItems(sectionData.items);
+                await excludedItemsReady;
+                items = filterExcludedItems(sectionData.items);
                 if (!items || items.length === 0) return false;
                 viewMoreUrl = sectionData.viewMoreUrl || null;
                 items = applyDiscoverySectionOrdering(items, sectionConfig);
