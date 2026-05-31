@@ -326,90 +326,97 @@
     // Add click listeners to tab buttons
     async function addClickListeners() {
         const headerTabs = document.querySelector('.headerTabs');
-        if (!headerTabs) return;
+        if (headerTabs) {
+            const buttons = headerTabs.querySelectorAll('.emby-tab-button');
+            let totalButtons = 2;
+            buttons.forEach(button => {
+                if (button.dataset.kefin === 'true') {
+                    return;
+                }
+                button.addEventListener('click', handleTabClick);
+                button.dataset.kefin = 'true';
+            });
 
-        const buttons = headerTabs.querySelectorAll('.emby-tab-button');
-        let totalButtons = 2;
-        buttons.forEach(button => {
-            if (button.dataset.kefin === 'true') return;
-            button.addEventListener('click', handleTabClick);
-            button.dataset.kefin = 'true';
-        });
-
-        const view = window.KefinTweaksUtils.getCurrentView();
-        if (view === 'home' || view === 'home.html') {
-            let customTabsCount = 0;
-            try {
-                // Use the public serverAddress() method to avoid trailing-slash issues
-                const serverAddress = ApiClient.serverAddress ? ApiClient.serverAddress() : ApiClient._serverAddress;
-                const token = ApiClient._serverInfo?.AccessToken || ApiClient.accessToken();
-                const response = await fetch(`${serverAddress}/CustomTabs/Config`, {
-                    method: 'GET',
+            const view = window.KefinTweaksUtils.getCurrentView();
+            if (view === 'home' || view === 'home.html') {
+                // Check for custom tabs
+                
+                const response = await fetch(`${ApiClient._serverAddress}/CustomTabs/Config`, {
+                    method: "GET",
                     headers: {
-                        'Content-Type': 'application/json',
-                        'X-Emby-Token': token,
+                        "Content-Type": "application/json",
+                        "X-Emby-Token": ApiClient._serverInfo.AccessToken || ApiClient.accessToken(),
                     },
                 });
-                if (response.ok) {
-                    const customTabs = await response.json();
-                    customTabsCount = customTabs?.length || 0;
-                } else {
-                    WARN('Custom Tabs config returned', response.status, '— skipping custom tab wait');
-                }
-            } catch (err) {
-                WARN('Failed to fetch Custom Tabs config:', err);
-            }
+                const customTabs = await response.json();
+                const customTabsCount = customTabs?.length || 0;
+                totalButtons += customTabsCount;
 
-            totalButtons += customTabsCount;
+                if (totalButtons > buttons.length && customTabsCount > 0) {
+                    // Wait for custom tabs to be rendered and add click listeners to them
+                    const tabsSlider = headerTabs.querySelector('.emby-tabs-slider');
+                    if (tabsSlider) {
+                        // Check if all custom tabs are already present
+                        const checkAllTabsPresent = () => {
+                            for (let i = 0; i < customTabsCount; i++) {
+                                const customTabId = `customTabButton_${i}`;
+                                if (!tabsSlider.querySelector(`#${customTabId}`)) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        };
 
-            if (customTabsCount > 0 && totalButtons > buttons.length) {
-                // Check by button count rather than by specific IDs — resilient to any
-                // version of the Custom Tabs Plugin regardless of how it names its elements.
-                const checkAllTabsPresent = () =>
-                    headerTabs.querySelectorAll('.emby-tab-button').length >= totalButtons;
+                        if (checkAllTabsPresent()) {
+                            // All tabs already present, add listeners immediately
+                            const newButtons = headerTabs.querySelectorAll('.emby-tab-button');
+                            newButtons.forEach(button => {
+                                if (button.dataset.kefin !== 'true') {
+                                    button.addEventListener('click', handleTabClick);
+                                    button.dataset.kefin = 'true';
+                                }
+                            });
+                            LOG('All custom tabs already present, added click listeners');
+                        } else {
+                            // Wait for custom tabs using MutationObserver
+                            LOG('Waiting for custom tabs to be rendered...');
+                            const observer = new MutationObserver((mutations, obs) => {
+                                if (checkAllTabsPresent()) {
+                                    // All custom tabs are now present
+                                    obs.disconnect();
+                                    LOG('All custom tabs rendered, adding click listeners');
+                                    syncActiveTabState();
+                                    
+                                    // Add click listeners to all buttons including the new custom tabs
+                                    const allButtons = headerTabs.querySelectorAll('.emby-tab-button');
+                                    allButtons.forEach(button => {
+                                        if (button.dataset.kefin !== 'true') {
+                                            button.addEventListener('click', handleTabClick);
+                                            button.dataset.kefin = 'true';
+                                        }
+                                    });
+                                }
+                            });
 
-                // Shared handler — called from both the immediate path and the observer.
-                // Cancels the fallback timeout so it doesn't fire after the observer already won.
-                let tabTimeoutId = null;
-                const applyTabListeners = (obs) => {
-                    if (obs) obs.disconnect();
-                    clearTimeout(tabTimeoutId);
-                    LOG('Custom tabs present, adding click listeners');
-                    syncActiveTabState();
-                    headerTabs.querySelectorAll('.emby-tab-button').forEach(button => {
-                        if (button.dataset.kefin !== 'true') {
-                            button.addEventListener('click', handleTabClick);
-                            button.dataset.kefin = 'true';
+                            // Start observing the tabs slider for child additions
+                            observer.observe(tabsSlider, {
+                                childList: true,
+                                subtree: true
+                            });
+
+                            // Set a timeout to disconnect observer after a reasonable time (e.g., 10 seconds)
+                            setTimeout(() => {
+                                observer.disconnect();
+                                LOG('MutationObserver timeout reached, stopped waiting for custom tabs');
+                            }, 10000);
                         }
-                    });
-                };
-
-                if (checkAllTabsPresent()) {
-                    applyTabListeners(null);
-                } else {
-                    LOG('Waiting for custom tabs to be rendered...');
-                    // Observe headerTabs (the stable parent) rather than .emby-tabs-slider,
-                    // which can be replaced by the Custom Tabs Plugin during rendering.
-                    const observer = new MutationObserver((mutations, obs) => {
-                        if (checkAllTabsPresent()) applyTabListeners(obs);
-                    });
-                    observer.observe(headerTabs, { childList: true, subtree: true });
-
-                    // Immediate re-check closes the race window between the check above
-                    // and observer.observe() starting.
-                    if (checkAllTabsPresent()) {
-                        applyTabListeners(observer);
-                    } else {
-                        tabTimeoutId = setTimeout(() => {
-                            observer.disconnect();
-                            WARN('MutationObserver timeout reached, stopped waiting for custom tabs');
-                        }, 10000);
+                        LOG('Synced active tab state after custom tabs were rendered');
                     }
                 }
             }
-        }
 
-        LOG('Added click listeners to', totalButtons, 'buttons');
+            LOG('Added click listeners to', totalButtons, 'buttons');
+        }
     }
 
     const MAX_INIT_ATTEMPTS = 10;

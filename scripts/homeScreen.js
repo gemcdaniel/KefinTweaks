@@ -1065,6 +1065,7 @@
     function isItemExcluded(item) {
         if (excludedItemIds.size === 0 && excludedLibraryIds.size === 0) return false;
         if (excludedItemIds.has(item.Id)) return true;
+        // Fallback for any response that does include TopParentId
         if (item.TopParentId && excludedLibraryIds.has(item.TopParentId)) return true;
         return false;
     }
@@ -1181,7 +1182,7 @@
             }
             
             const data = await response.json();
-            data.Items = await filterExcludedItems(data.Items || []);
+            data.Items = filterExcludedItems(data.Items || []);
             return data;
         } catch (err) {
             ERR(`Failed to fetch collection data for ${collectionId}:`, err);
@@ -1820,7 +1821,7 @@
                     const data = await response.json();
                     return {
                         name: query.name,
-                        items: await filterExcludedItems(data.Items || [])
+                        items: filterExcludedItems(data.Items || [])
                     };
                 })
             );
@@ -2324,7 +2325,7 @@
             }
             
             const data = await response.json();
-            return await filterExcludedItems(data.Items || []);
+            return filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Failed to fetch favorite items:`, err);
             return [];
@@ -2425,7 +2426,7 @@
             const dateB = new Date(b.PremiereDate || 0);
             return dateB - dateA;
         });
-        return await filterExcludedItems(sorted);
+        return filterExcludedItems(sorted);
     }
 
     /**
@@ -2437,9 +2438,9 @@
             WARN('LocalStorageCache not available');
             return [];
         }
-
+        
         const cache = new window.LocalStorageCache();
-        return cache.get('movies') || [];
+        return filterExcludedItems(cache.get('movies') || []);
     }
 
     /**
@@ -2451,9 +2452,9 @@
             WARN('LocalStorageCache not available');
             return [];
         }
-
+        
         const cache = new window.LocalStorageCache();
-        return cache.getChunked('progress') || [];
+        return filterExcludedItems(cache.getChunked('progress') || []);
     }
 
     /**
@@ -2720,7 +2721,7 @@
             }
             
             const data = await response.json();
-            return await filterExcludedItems(data.Items || []);
+            return filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Error fetching items by studio ${studioId}:`, err);
             return [];
@@ -2754,7 +2755,7 @@
             }
             
             const data = await response.json();
-            return await filterExcludedItems(data.Items || []);
+            return filterExcludedItems(data.Items || []);
         } catch (err) {
             ERR(`Error fetching items by person ${personId}:`, err);
             return [];
@@ -3182,7 +3183,7 @@
             }
 
             const data = await window.apiHelper.getData(url, true);
-            const episodes = await filterExcludedItems(data.Items || []);
+            let episodes = filterExcludedItems(data.Items || []);
 
             // Filter out episodes that have already aired (before today)
             const today = new Date();
@@ -3583,7 +3584,7 @@
             const response = await ApiClient.fetch({ url, method: 'GET' });
             const data = await response.json();
 
-            return await filterExcludedItems(data.Items || []);
+            return filterExcludedItems(data.Items || []);
 
         } catch (err) {
             ERR('Error fetching items by IDs:', err);
@@ -6143,7 +6144,7 @@
         checkAndRenderCustomSections();
     };
 
-    window.debugCustomSections = async function() {
+    window.debugCustomSections = function() {
         LOG('Custom sections configuration:', customHomeSections);
         LOG('New and Trending configuration - enableNewAndTrending:', enableNewAndTrending, 'enableNewMovies:', enableNewMovies, 'enableNewEpisodes:', enableNewEpisodes, 'enableTrending:', enableTrending);
         LOG('Discovery configuration - enableWatchlist:', enableWatchlist, 'enableDiscovery:', enableDiscovery, 'enableSeasonal:', enableSeasonal);
@@ -6185,7 +6186,7 @@
         
         // Check discovery section data availability
         if (enableWatchlist) {
-            const watchlistData = await getWatchlistData();
+            const watchlistData = getWatchlistData();
             LOG('Watchlist data available:', watchlistData.length, 'items');
         }
         
@@ -6350,7 +6351,7 @@
         }
         
         // Test watchlist data
-        const watchlistData = await getWatchlistData();
+        const watchlistData = getWatchlistData();
         LOG('Watchlist data available:', watchlistData.length, 'items');
         
         // Test movie history
