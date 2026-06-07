@@ -311,21 +311,18 @@
             const supportedCollectionTypes = ['tvshows', 'movies', 'homevideos', 'boxsets', 'playlists'];
             const supportedLibraryItems = libraryItems.Items.filter(item => supportedCollectionTypes.includes(item.CollectionType) || !item.CollectionType);
 
-            // Now use these support library items as the parent ids for the Items query, since the Items endpoint doesn't support ParentIds as an array we need to make a different call for each library. Querying with the parent id will dramatically reduce the time for the request to return so this is fine
-            let watchlistItems = [];
-            for (const libraryItem of supportedLibraryItems.reverse()) {
-                // Get the item types to include based on the library type. if its a Movies library only use the Movie type. If it's tvshows then use Series, Season and Episode
+            // Fetch all libraries in parallel — each library is independent so there is no
+            // reason to await them one at a time.
+            const fetchPromises = supportedLibraryItems.reverse().map(libraryItem => {
                 let itemTypes = options.IncludeItemTypes.split(',');
-                if (itemTypes.length > 1) { 
+                if (itemTypes.length > 1) {
                     if (libraryItem.CollectionType === 'movies') {
-                        itemTypes = options.IncludeItemTypes.split(',').filter(item => item === 'Movie');
+                        itemTypes = itemTypes.filter(item => item === 'Movie');
                     } else if (libraryItem.CollectionType === 'tvshows') {
-                        itemTypes = options.IncludeItemTypes.split(',').filter(item => item === 'Series' || item === 'Season' || item === 'Episode');
+                        itemTypes = itemTypes.filter(item => item === 'Series' || item === 'Season' || item === 'Episode');
                     }
                 }
-                
-                // Use getItems to fetch the items for the library item
-                const data = await this.getItems({
+                return this.getItems({
                     ParentId: libraryItem.Id,
                     Filters: 'Likes',
                     IncludeItemTypes: itemTypes.join(','),
@@ -333,17 +330,18 @@
                     ImageTypeLimit: 1,
                     EnableImageTypes: 'Primary,Backdrop,Thumb',
                     ...options
-                }, useCache);
+                }, useCache).then(data => data.Items || []);
+            });
+            const itemArrays = await Promise.all(fetchPromises);
+            let watchlistItems = itemArrays.flat();
 
-                //const url = `${ApiClient.serverAddress()}/Items?Filters=Likes&IncludeItemTypes=${type}&UserId=${ApiClient.getCurrentUserId()}&Recursive=true&ImageTypeLimit=1&EnableImageTypes=Primary,Backdrop,Thumb&ParentId=${libraryItem.Id}`;
-                //const data = await this.getData(url, useCache);
-                watchlistItems.push(...data.Items);
-            }
-
-            // Deuplicate any duplicate Id's in the watchlistItems array
-            watchlistItems = watchlistItems.filter((item, index, self) =>
-                index === self.findIndex((t) => t.Id === item.Id)
-            );
+            // Deduplicate by Id using a Set — O(n) instead of the previous O(n²) filter+findIndex.
+            const seenIds = new Set();
+            watchlistItems = watchlistItems.filter(item => {
+                if (seenIds.has(item.Id)) return false;
+                seenIds.add(item.Id);
+                return true;
+            });
 
             return {
                 Items: watchlistItems,

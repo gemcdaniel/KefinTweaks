@@ -224,7 +224,7 @@
         const itemPromise = getCurrentItem();
 
         handlers.forEach((config) => {
-            if (shouldCallHandler(config, view)) {
+            if (shouldCallHandler(config, view, hash)) {
                 try {
                     // Pass the promise as third parameter - handlers can await if needed
                     config.callback(view, element, hash, itemPromise, previousHash);
@@ -241,23 +241,19 @@
      * @param {string} view - The view name
      * @returns {boolean} Whether the handler should be called
      */
-    function shouldCallHandler(config, view) {
+    function shouldCallHandler(config, view, currentUrl = window.location.hash) {
         const { pages, triggerOnSameHash = true } = config.options;
-        
-        if (state.previousHash === window.location.hash && !triggerOnSameHash) {
+
+        if (state.previousHash === currentUrl && !triggerOnSameHash) {
             return false;
         }
 
         // If no specific pages are specified, call for all pages
         if (pages.length === 0) return true;
-        
-        // Get current URL hash to determine actual page
-        const currentUrl = window.location.hash;
-        
+
         // Check if the current URL matches any of the specified pages
         return pages.some(page => {
             if (typeof page === 'string') {
-                // Check if URL hash contains the page pattern
                 return currentUrl.includes(`/${page}.html`) || currentUrl.includes(`/${page}`) || currentUrl.includes(page);
             } else if (page instanceof RegExp) {
                 return page.test(currentUrl);

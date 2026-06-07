@@ -58,14 +58,17 @@
 
             // Check the server version instead of app version
             if (!window.ApiClient._serverVersion) {
-                // Wait 10s to see if it becomes ready, check every 500ms
-                const startTime = Date.now();
-                while (Date.now() - startTime < 10000) {
-                    if (window.ApiClient._serverVersion) {
-                        break;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
+                // Wait up to 10 s, checking every 500 ms.  setInterval avoids holding
+                // an async call stack open across 20 await suspension points.
+                await new Promise(resolve => {
+                    const start = Date.now();
+                    const id = setInterval(() => {
+                        if (window.ApiClient._serverVersion || Date.now() - start >= 10000) {
+                            clearInterval(id);
+                            resolve();
+                        }
+                    }, 500);
+                });
             }
 
             cachedServerVersion = getMajorServerVersion(window.ApiClient._serverVersion);
